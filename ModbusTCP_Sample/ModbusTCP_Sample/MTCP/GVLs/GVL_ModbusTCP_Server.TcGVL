@@ -6,10 +6,11 @@
 // More information in documentation on infosys.beckhoff.com.
 {attribute 'qualified_only'}
 VAR_GLOBAL
-	mb_Input_Coils AT%I*						: ARRAY [0..99] OF BOOL;			// Slave TCP digital inputs (max [0..255] OF BOOL)
-	mb_Output_Coils AT%Q*						: ARRAY [0..99] OF BOOL;			// Slave TCP digital outputs (max [0..255] OF BOOL)
-	mb_Input_Registers AT%I*					: ARRAY [0..99] OF WORD;			// Slave TCP input registers (max [0..255] OF WORD)
-	mb_Output_Registers AT%Q*					: ARRAY [0..99] OF WORD;			// Slave TCP output registers (max [0..255] OF WORD)	
+	mb_Input_Coils 				AT%I*						: ARRAY [0..255] OF BOOL;			// Modbus TCP digital inputs 
+	mb_Output_Coils 			AT%Q*						: ARRAY [0..255] OF BOOL;			// Modbus TCP digital outputs 
+	mb_Input_Registers 			AT%I*						: ARRAY [0..255] OF WORD;			// Modbus TCP input registers 
+	mb_Output_Registers 		AT%Q*						: ARRAY [0..255] OF WORD;			// Modbus TCP output registers 
+
 END_VAR
 ]]></Declaration>
   </GVL>
