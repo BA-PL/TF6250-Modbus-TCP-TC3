@@ -1,0 +1,348 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_Modbus_TCP_Client" Id="{183ba730-3287-4876-a329-03c067dd6b2a}" SpecialFunc="None">
+    <Declaration><![CDATA[//==================================================================================================
+//							Beckhoff Automation Poland
+//									24.02.2021
+//	Blok funkcyjny pozwala na odczytywanie danych z urządzenia serwera za pomocą protokołu Modbus TCP.
+//	Na wejściu podane są: adres IP serwera, port komunikacyjny, struktura danych, numer ID serwera, 
+//  adres pamięci, ilość odczytywanych danych oraz numer funkcji.
+//	Blok zwraca strukturę zawierającą wartości odczytanych rejestrów lub cewek w urządzeniu serwera.
+//	Błędy mogą być wyzerowane za pomocą zmiennej bReset.
+//  Wewnętrznie wypełniana jest tablica błędów dla poszczególnych funkcji.
+//  Blok działa po podaniu zbocza narastającego na wejście bExecute.
+//	Wewnętrznie wykorzystane są bloki funkcyjne z biblioteki Tc2_ModbusSrv.
+//  v1.0	|| TC v 3.1.4024.4		|| - pierwsza wersja
+//	v1.1	|| TC v 3.1.4024.7		|| - poprawki wizualne kodu, opis bloku w języku angielskim
+//	v1.2	|| TC v 3.1.4024.12		|| - poprawki kodu oraz opisu bloku
+//==================================================================================================
+
+//	Function block lets read data from server device with Modbus TCP protocol.
+//	Inputs are: server IP Address, communication port, data array, server device ID, 
+//  memory address, data size and function number.
+//	Function block returns data array with values read from server device.
+//	Errors can be reset with bReset variable.
+//  Errors table for each function is filled internally.
+//  Block works after getting rising edge on bExecute input.
+//	Function block from Tc2_ModbusSrv library are used internally.
+//  v1.0	|| TC v 3.1.4024.4		|| - first version
+//	v1.1	|| TC v 3.1.4024.7		|| - visual code correction, added English description
+// 	v1.2	|| TC v 3.1.4024.12		|| - code and description correction
+//==================================================================================================
+FUNCTION_BLOCK FB_Modbus_TCP_Client
+
+// Inputs variables declaring defined during block declaration
+VAR_INPUT
+	sIPAddress						: STRING(15);							// Slave IP address
+	uiTCPPort						: UINT := 502;							// TCP port (usually 502)
+	byUnitID						: BYTE;									// Unit ID (usually 255)
+	iFunctionNo						: INT;									// Function number
+	wAddress						: WORD;									// Memory address
+	stData							: PVOID;								// Pointer to data array
+	uiQuantity						: UINT;									// Reading/writing quantity
+	bExecute						: BOOL;									// Execute block - starts on rising edge
+	tTimeout						: TIME := DEFAULT_ADS_TIMEOUT;			// Timeout
+	bReset							: BOOL;									// Reset errors
+	nValue							: WORD;									// Value to be written
+END_VAR
+
+VAR_OUTPUT
+	bBusy							: BOOL;									// Block is executing
+	bError							: BOOL;									// Error occured
+	udiErrorId						: UDINT;								// Error number
+	bDone							: BOOL;									// Function done
+END_VAR
+
+VAR
+	(*************************** FB DECLARATIONS ***************************)
+	fbReadCoils						: FB_MBReadCoils;						// Read Coils
+	fbReadInputs					: FB_MBReadInputs;						// Read Input Coils
+	fbReadRegs						: FB_MBReadRegs;						// Read Holding Registers
+	fbReadInputRegs					: FB_MBReadInputRegs;					// Read Input Registers
+	fbWriteSingleCoil				: FB_MBWriteSingleCoil;					// Write Single Coil
+	fbWriteSingleReg				: FB_MBWriteSingleReg;					// Write Single Register 
+	fbWriteCoils					: FB_MBWriteCoils;						// Write Multiple Coils
+	fbWriteRegs						: FB_MBWriteRegs;						// Write Multiple Registers
+
+	rtExecuteTrig					: R_TRIG;								// Rising edge on Execute input
+	rtResetTrig						: R_TRIG;								// Rising edge on Reset input
+	
+	(************************* INTERNAL VARIABLES *************************)
+	_sIPAddress						: STRING(15);							// IP Address						
+	_uiTCPPort						: UINT;									// TCP Port
+	_byUnitId						: BYTE;									// Unit ID
+	_wAddress						: WORD;									// Memory Address
+	_pDestAddr						: PVOID;								// Destination address
+	_uiQuantity						: UINT;									// Quantity
+	_nValue							: WORD;									// Value to be written
+	_iFunction						: INT;									// Function number
+	wState							: WORD;									// State
+		
+	arrError						: ARRAY [1..8] OF UDINT;				// Error counters table
+	(* arrError[1]					- Function 1 Errors
+	arrError[2]						- Function 2 Errors
+	arrError[3]						- Function 3 Errors
+	arrError[4]						- Function 4 Errors
+	arrError[5]						- Function 5 Errors
+	arrError[6]						- Function 6 Errors
+	arrError[7]						- Function 15 Errors
+	arrError[8]						- Function 16 Errors*)	
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[rtExecuteTrig(CLK:= bExecute);												// Detect rising edge on execute input
+rtResetTrig(CLK:= bReset  );												// Detect rising edge on reset input
+                                                                        	
+CASE wState OF                                                          	
+	0:																		// EXECUTE TRIG STATE
+		IF rtExecuteTrig.Q THEN                                         	
+			_sIPAddress 				:= sIPAddress;						// Assign IP Address
+			_uiTCPPort					:= uiTCPPort;						// Assign TCP Port (usually 502)
+			_byUnitId					:= byUnitId;						// Assign Unit ID (usually 16#FF)
+			_wAddress					:= wAddress;						// Assign memory address
+			_pDestAddr					:= stData;							// Assign pointer to array of data
+			_uiQuantity				    := uiQuantity;						// Assign reading/writing quantity
+			_nValue						:= nValue;							// Assign writing value
+			_iFunction					:= iFunctionNo;						// Assign chosen function number
+			bBusy 						:= TRUE;							// Set busy output to TRUE
+			wState 						:= 10;								// Go to the state no. 10
+		END_IF
+	
+	10:																		// FUNCTIONS STATE
+		CASE _iFunction OF
+			1:	(************************* READ OUTPUT COILS ***************************)
+				fbReadCoils(
+						  sIPAddr			:= _sIPAddress, 				// Assign IP Address
+						  nTCPPort			:= _uiTCPPort, 					// Modbus default port 502
+						  nUnitID			:= _byUnitId, 					// Value must be 16#FF
+						  nQuantity			:= _uiQuantity, 				// Assign quantity
+						  nMBAddr			:= _wAddress, 					// Assign memory address
+						  cbLength			:= (_uiQuantity+7)/8, 			// Assign number of bytes to be read/written
+						  pDestAddr			:= _pDestAddr,					// Assign pointer address
+						  bExecute 			:= TRUE, 						// Execute block
+						  tTimeout			:= tTimeout);					// Set timeout
+						  
+				IF NOT fbReadCoils.bBusy THEN								// If block ends work					
+					IF fbReadCoils.bError THEN								// If ended with error
+						bError 				:= TRUE;						// Set error output
+						udiErrorId		 	:= fbReadCoils.nErrId;			// Set error ID output
+						wState				:= 999;							// Go to error state
+						bBusy 				:= FALSE;						// Set busy output to FALSE
+						arrError[1]			:= arrError[1] + 1;				// Increment error table cell
+					ELSE													// If ended without error
+						wState 				:= 0;							// Go to idle state
+						bBusy 				:= FALSE;						// Set busy output to FALSE
+						bDone				:= TRUE;						// Set done output to TRUE
+					END_IF	                                                
+					fbReadCoils(bExecute := FALSE);							// Set block execute input to FALSE
+				END_IF
+			
+			2:	(************************* READ INPUT COILS ****************************)
+				fbReadInputs(
+						  sIPAddr			:= _sIPAddress, 				// Assign IP Address
+						  nTCPPort			:= _uiTCPPort, 					// Modbus default port 502
+						  nUnitID			:= _byUnitId, 					// Value must be 16#FF
+						  nQuantity			:= _uiQuantity, 				// Assign quantity
+						  nMBAddr			:= _wAddress, 					// Assign memory address
+						  cbLength			:= (_uiQuantity+7)/8, 			// Assign number of bytes to be read/written
+						  pDestAddr			:= _pDestAddr,					// Assign pointer address
+						  bExecute 			:= TRUE, 						// Execute block
+						  tTimeout			:= tTimeout);					// Set timeout
+						  
+				IF NOT fbReadInputs.bBusy THEN								// If block ends work					
+					IF fbReadInputs.bError THEN								// If ended with error
+						bError 				:= TRUE;						// Set error output
+						udiErrorId		 	:= fbReadInputs.nErrId;			// Set error ID output
+						wState				:= 999;							// Go to error state
+						bBusy 				:= FALSE;						// Set busy output to FALSE
+						arrError[2]			:= arrError[2] + 1;				// Increment error table cell
+					ELSE													// If ended without error
+						wState 				:= 0;							// Go to idle state
+						bBusy 				:= FALSE;						// Set busy output to FALSE
+						bDone				:= TRUE;						// Set done output to TRUE
+					END_IF	                                                
+					fbReadInputs(bExecute := FALSE);						// Set block execute input to FALSE
+				END_IF
+				
+			3:	(************************* READ HOLDING REGISTERS **********************)
+				fbReadRegs(
+						  sIPAddr			:= _sIPAddress, 				// Assign IP Address
+						  nTCPPort			:= _uiTCPPort, 					// Modbus default port 502
+						  nUnitID			:= _byUnitId, 					// Value must be 16#FF
+						  nQuantity			:= _uiQuantity, 				// Assign quantity
+						  nMBAddr			:= _wAddress, 					// Assign memory address
+						  cbLength			:= _uiQuantity*2, 				// Assign number of bytes to be read/written
+						  pDestAddr			:= _pDestAddr,					// Assign pointer address
+						  bExecute 			:= TRUE, 						// Execute block
+						  tTimeout			:= tTimeout);					// Set timeout
+						  
+				IF NOT fbReadRegs.bBusy	   THEN								// If block ends work					
+					IF fbReadRegs.bError   THEN								// If ended with error
+						bError 				:= TRUE;						// Set error output
+						udiErrorId		 	:= fbReadRegs.nErrId;			// Set error ID output
+						wState				:= 999;							// Go to error state
+						bBusy 				:= FALSE;						// Set busy output to FALSE
+						arrError[3]			:= arrError[3] + 1;				// Increment error table cell
+					ELSE													// If ended without error
+						wState 				:= 0;							// Go to idle state
+						bBusy 				:= FALSE;						// Set busy output to FALSE
+						bDone				:= TRUE;						// Set done output to TRUE
+					END_IF	                                                
+					fbReadRegs(bExecute := FALSE);							// Set block execute input to FALSE
+				END_IF
+			
+			4:	(************************* READ INPUT REGISTERS ************************)
+				fbReadInputRegs(
+						  sIPAddr			:= _sIPAddress, 				// Assign IP Address
+						  nTCPPort			:= _uiTCPPort, 					// Modbus default port 502
+						  nUnitID			:= _byUnitId, 					// Value must be 16#FF
+						  nQuantity			:= _uiQuantity, 				// Assign quantity
+						  nMBAddr			:= _wAddress, 					// Assign memory address
+						  cbLength			:= _uiQuantity*2, 				// Assign number of bytes to be read/written
+						  pDestAddr			:= _pDestAddr,					// Assign pointer address
+						  bExecute 			:= TRUE, 						// Execute block
+						  tTimeout			:= tTimeout);					// Set timeout
+						  
+				IF NOT fbReadInputRegs.bBusy	   THEN						// If block ends work					
+					IF fbReadInputRegs.bError      THEN						// If ended with error
+						bError 				:= TRUE;						// Set error output
+						udiErrorId		 	:= fbReadInputRegs.nErrId;		// Set error ID output
+						wState				:= 999;							// Go to error state
+						bBusy 				:= FALSE;						// Set busy output to FALSE
+						arrError[4]			:= arrError[4] + 1;				// Increment error table cell
+					ELSE													// If ended without error
+						wState 				:= 0;							// Go to idle state
+						bBusy 				:= FALSE;						// Set busy output to FALSE
+						bDone				:= TRUE;						// Set done output to TRUE
+					END_IF	                                                
+					fbReadInputRegs(bExecute := FALSE);						// Set block execute input to FALSE
+				END_IF
+			
+			5:	(************************* WRITE SINGLE COIL ***************************)
+				fbWriteSingleCoil(
+						  sIPAddr			:= _sIPAddress, 				// Assign IP Address
+						  nTCPPort			:= _uiTCPPort, 					// Modbus default port 502
+						  nUnitID			:= _byUnitId, 					// Value must be 16#FF
+						  nMBAddr			:= _wAddress, 					// Assign memory address
+						  nValue			:= _nValue,						// Coil value (The value 16#FF00 switches the output on, 16#0000 switches it off.)
+						  bExecute 			:= TRUE, 						// Execute block
+						  tTimeout			:= tTimeout);					// Set timeout
+						                                                    
+				IF NOT fbWriteSingleCoil.bBusy	   THEN						// If block ends work					
+					IF fbWriteSingleCoil.bError    THEN						// If ended with error
+						bError 				:= TRUE;						// Set error output
+						udiErrorId		 	:= fbWriteSingleCoil.nErrId;	// Set error ID output
+						wState				:= 999;							// Go to error state
+						bBusy 				:= FALSE;						// Set busy output to FALSE
+						arrError[5]			:= arrError[5] + 1;				// Increment error table cell
+					ELSE													// If ended without error
+						wState 				:= 0;							// Go to idle state
+						bBusy 				:= FALSE;						// Set busy output to FALSE
+						bDone				:= TRUE;						// Set done output to TRUE
+					END_IF	                                                
+					fbWriteSingleCoil(bExecute := FALSE);					// Set block execute input to FALSE
+				END_IF
+			
+			6:	(************************* WRITE SINGLE REGISTER ***********************)
+				fbWriteSingleReg(
+						  sIPAddr			:= _sIPAddress, 				// Assign IP Address
+						  nTCPPort			:= _uiTCPPort, 					// Modbus default port 502
+						  nUnitID			:= _byUnitId, 					// Value must be 16#FF
+						  nMBAddr			:= _wAddress, 					// Assign memory address
+						  nValue			:= _nValue,						// Register value
+						  bExecute 			:= TRUE, 						// Execute block
+						  tTimeout			:= tTimeout);					// Set timeout
+						  
+				IF NOT fbWriteSingleReg.bBusy	  THEN						// If block ends work					
+					IF fbWriteSingleReg.bError    THEN						// If ended with error
+						bError 				:= TRUE;						// Set error output
+						udiErrorId		 	:= fbWriteSingleReg.nErrId;		// Set error ID output
+						wState				:= 999;							// Go to error state
+						bBusy 				:= FALSE;						// Set busy output to FALSE
+						arrError[6]			:= arrError[6] + 1;				// Increment error table cell
+					ELSE													// If ended without error
+						wState 				:= 0;							// Go to idle state
+						bBusy 				:= FALSE;						// Set busy output to FALSE
+						bDone				:= TRUE;						// Set done output to TRUE
+					END_IF	                                                
+					fbWriteSingleReg(bExecute := FALSE);					// Set block execute input to FALSE
+				END_IF
+			
+			15:	(************************* WRITE MULTIPLE COILS ************************)
+				fbWriteCoils(
+						  sIPAddr			:= _sIPAddress, 				// Assign IP Address
+						  nTCPPort			:= _uiTCPPort, 					// Modbus default port 502
+						  nUnitID			:= _byUnitId, 					// Value must be 16#FF
+						  nQuantity			:= _uiQuantity, 				// Assign quantity
+						  nMBAddr			:= _wAddress, 					// Assign memory address
+						  cbLength			:= (_uiQuantity + 7)/8, 		// Assign number of bytes to be read/written
+						  pSrcAddr			:= _pDestAddr,					// Assign pointer address
+						  bExecute 			:= TRUE, 						// Execute block
+						  tTimeout			:= tTimeout);					// Set timeout
+						  
+				IF NOT fbWriteCoils.bBusy	THEN							// If block ends work					
+					IF fbWriteCoils.bError  THEN							// If ended with error
+						bError 				:= TRUE;						// Set error output
+						udiErrorId		 	:= fbWriteCoils.nErrId;			// Set error ID output
+						wState				:= 999;							// Go to error state
+						bBusy 				:= FALSE;						// Set busy output to FALSE
+						arrError[7]			:= arrError[7] + 1;				// Increment error table cell
+					ELSE													// If ended without error
+						wState 				:= 0;							// Go to idle state
+						bBusy 				:= FALSE;						// Set busy output to FALSE
+						bDone				:= TRUE;						// Set done output to TRUE
+					END_IF	                                                
+					fbWriteCoils(bExecute := FALSE);						// Set block execute input to FALSE
+				END_IF
+			
+			16:	(************************* WRITE MULTIPLE REGISTERS ********************)
+				fbWriteRegs(                                                
+						  sIPAddr			:= _sIPAddress, 				// Assign IP Address
+						  nTCPPort			:= _uiTCPPort, 					// Modbus default port 502
+						  nUnitID			:= _byUnitId, 					// Value must be 16#FF
+						  nQuantity			:= _uiQuantity, 				// Assign quantity
+						  nMBAddr			:= _wAddress, 					// Assign memory address
+						  cbLength			:= _uiQuantity*2, 				// Assign number of bytes to be read/written
+						  pSrcAddr			:= _pDestAddr,					// Assign pointer address
+						  bExecute 			:= TRUE, 						// Execute block
+						  tTimeout			:= tTimeout);					// Set timeout
+						                                                    
+				IF NOT fbWriteRegs.bBusy	THEN							// If block ends work					
+					IF fbWriteRegs.bError   THEN							// If ended with error
+						bError 				:= TRUE;						// Set error output
+						udiErrorId		 	:= fbWriteRegs.nErrId;			// Set error ID output
+						wState				:= 999;							// Go to error state
+						bBusy 				:= FALSE;						// Set busy output to FALSE
+						arrError[8]			:= arrError[8] + 1;				// Increment error table cell
+					ELSE													// If ended without error
+						wState 				:= 0;							// Go to idle state
+						bBusy 				:= FALSE;						// Set busy output to FALSE
+						bDone				:= TRUE;						// Set done output to TRUE
+					END_IF	                                                
+					fbWriteRegs(bExecute := FALSE);							// Set block execute input to FALSE
+				END_IF
+				
+			ELSE(************************* WRONG FUNCTION NUMBER ***********************)
+				bError 					:= TRUE;							// Set error output to TRUE
+				wState 					:= 999;								// Go to error state	
+				
+		END_CASE
+	
+	999:																	// ERROR STATE
+		IF rtResetTrig.Q THEN
+			bError						:= FALSE;							// Set error output on FALSE
+			udiErrorID					:= 0;								// Set error number on 0
+			wState						:= 0;								// Go to idle state
+			bReset						:= FALSE;							// Set reset input on FALSE
+		END_IF
+END_CASE
+]]></ST>
+    </Implementation>
+    <LineIds Name="FB_Modbus_TCP_Client">
+      <LineId Id="1132" Count="234" />
+      <LineId Id="1464" Count="0" />
+      <LineId Id="1367" Count="9" />
+      <LineId Id="165" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

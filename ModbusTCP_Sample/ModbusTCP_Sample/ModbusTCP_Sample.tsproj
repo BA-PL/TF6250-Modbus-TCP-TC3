@@ -1,0 +1,85 @@
+<?xml version="1.0"?>
+<TcSmProject xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.beckhoff.com/schemas/2012/07/TcSmProject" TcSmVersion="1.0" TcVersion="3.1.4024.67">
+	<DataTypes>
+		<DataType>
+			<Name GUID="{457315DB-58E9-47DF-F116-A4C15068A1F9}" IecBaseType="true" AutoDeleteType="true">ARRAY [0..99] OF BOOL</Name>
+			<BitSize>800</BitSize>
+			<BaseType GUID="{18071995-0000-0000-0000-000000000030}">BOOL</BaseType>
+			<ArrayInfo>
+				<LBound>0</LBound>
+				<Elements>100</Elements>
+			</ArrayInfo>
+		</DataType>
+		<DataType>
+			<Name GUID="{48FE6F99-B21D-070B-64D2-FAAAB1994C7F}" IecBaseType="true" AutoDeleteType="true">ARRAY [0..99] OF WORD</Name>
+			<BitSize>1600</BitSize>
+			<BaseType GUID="{18071995-0000-0000-0000-000000000004}">WORD</BaseType>
+			<ArrayInfo>
+				<LBound>0</LBound>
+				<Elements>100</Elements>
+			</ArrayInfo>
+		</DataType>
+	</DataTypes>
+	<Project ProjectGUID="{1C8ADD51-ED3A-4C84-8654-AD399B1BF240}" Target64Bit="true" ShowHideConfigurations="#x6">
+		<System>
+			<Licenses>
+				<Target>
+					<ManualSelect>{6952449D-F68C-49A2-ADE4-8639D85B33A4}</ManualSelect>
+				</Target>
+			</Licenses>
+			<Tasks>
+				<Task Id="3" Priority="20" CycleTime="100000" AmsPort="350" AdtTasks="true">
+					<Name>PlcTask</Name>
+				</Task>
+			</Tasks>
+		</System>
+		<Plc>
+			<Project GUID="{26ACA0D2-851F-40F2-8F3C-CC184A5B9C69}" Name="MTCP" PrjFilePath="MTCP\MTCP.plcproj" TmcFilePath="MTCP\MTCP.tmc" ReloadTmc="true" AmsPort="851" FileArchiveSettings="#x000e" SymbolicMapping="true">
+				<Instance Id="#x08502000" TcSmClass="TComPlcObjDef" KeepUnrestoredLinks="2" TmcHash="{1C385351-DE72-8C39-858F-03C9E6915C18}">
+					<Name>MTCP Instance</Name>
+					<CLSID ClassFactory="TcPlc30">{08500001-0000-0000-F000-000000000064}</CLSID>
+					<Vars VarGrpType="1">
+						<Name>PlcTask Inputs</Name>
+						<Var>
+							<Name>GVL_ModbusTCP_Server.mb_Input_Coils</Name>
+							<Comment><![CDATA[ Slave TCP digital inputs (max [0..255] OF BOOL)]]></Comment>
+							<Type GUID="{457315DB-58E9-47DF-F116-A4C15068A1F9}">ARRAY [0..99] OF BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_ModbusTCP_Server.mb_Input_Registers</Name>
+							<Comment><![CDATA[ Slave TCP input registers (max [0..255] OF WORD)]]></Comment>
+							<Type GUID="{48FE6F99-B21D-070B-64D2-FAAAB1994C7F}">ARRAY [0..99] OF WORD</Type>
+						</Var>
+					</Vars>
+					<Vars VarGrpType="2" AreaNo="1">
+						<Name>PlcTask Outputs</Name>
+						<Var>
+							<Name>GVL_ModbusTCP_Server.mb_Output_Coils</Name>
+							<Comment><![CDATA[ Slave TCP digital outputs (max [0..255] OF BOOL)]]></Comment>
+							<Type GUID="{457315DB-58E9-47DF-F116-A4C15068A1F9}">ARRAY [0..99] OF BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_ModbusTCP_Server.mb_Output_Registers</Name>
+							<Comment><![CDATA[ Slave TCP output registers (max [0..255] OF WORD)	]]></Comment>
+							<Type GUID="{48FE6F99-B21D-070B-64D2-FAAAB1994C7F}">ARRAY [0..99] OF WORD</Type>
+						</Var>
+					</Vars>
+					<Contexts>
+						<Context>
+							<Id>0</Id>
+							<Name>PlcTask</Name>
+							<ManualConfig>
+								<OTCID>#x02010030</OTCID>
+							</ManualConfig>
+							<Priority>20</Priority>
+							<CycleTime>10000000</CycleTime>
+						</Context>
+					</Contexts>
+					<TaskPouOids>
+						<TaskPouOid Prio="20" OTCID="#x08502001"/>
+					</TaskPouOids>
+				</Instance>
+			</Project>
+		</Plc>
+	</Project>
+</TcSmProject>
